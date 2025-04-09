@@ -6,6 +6,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
+import android.view.View;
+import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -28,6 +30,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.example.projekcik.javaViewCameraControl;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -40,7 +43,9 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     private static final String TAG = "MyOpenCV";
 
     private static final int CAMERA_PERMISSION_REQUEST_CODE = 100;
-    private CameraBridgeViewBase mOpenCvCameraView;
+
+    private javaViewCameraControl mOpenCvCameraView;
+//    private CameraBridgeViewBase mOpenCvCameraView;
     private TextView title_tv;
     private TextView frameNum;
     private TextView frameSize;
@@ -76,29 +81,43 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // Inicjalizacja OpenCV
-        if (!OpenCVLoader.initDebug()) {
-            Log.e(TAG, "OpenCV initialization failed.");
-            Toast.makeText(this, "OpenCV initialization failed", Toast.LENGTH_SHORT).show();
-        } else {
-            Log.d(TAG, "OpenCV initialization succeeded.");
-        }
+        // Inicjalizacja wszystkich wymaganych obiektów
+        appData = new UiDataBundle();
+        timestampQ = new Stack<>();
+        dataQ = new DoubleTwoDimQueue(); // Zakładając, że ta klasa istnieje
+        mHandler = new Handler(Looper.getMainLooper()) {
+            @Override
+            public void handleMessage(Message msg) {
+                // Aktualizacja UI
+            }
+        };
 
-        // Inicjalizacja appData
-        appData = new UiDataBundle(); // <-- Upewnij się, że to dodasz
-
-        // Inicjalizacja timestampQ (Stack)
-        timestampQ = new Stack<>();  // <-- Zainicjalizuj stos
-
-        // Inicjalizacja widoku kamery
+        // Inicjalizacja kamery
         mOpenCvCameraView = findViewById(R.id.HelloOpenCvView);
         mOpenCvCameraView.setVisibility(CameraBridgeViewBase.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
 
-        // Upewnij się, że mOpenCvCameraView jest poprawnie skonfigurowane:
-        mOpenCvCameraView.setCameraPermissionGranted(); // Sprawdź dostępność kamery
-        mOpenCvCameraView.enableView(); // Umożliwia widok kamery
-        myThread.start(); // Uruchamiamy wątek
+        // Ustawienie flag
+        keep_thread_running = true;
+        first_fft_run = true;
+        init_frames_discard = false;
+
+        // Reszta inicjalizacji
+        if (checkCameraPermission()) {
+            startCamera();
+        }
+    }
+
+
+    private boolean checkCameraPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.CAMERA},
+                    CAMERA_PERMISSION_REQUEST_CODE);
+            return false;
+        }
+        return true;
     }
 
 
@@ -126,6 +145,9 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     @Override
     public void onResume() {
         super.onResume();
+        if (mOpenCvCameraView != null) {
+            mOpenCvCameraView.enableView();
+        }
         if (!OpenCVLoader.initDebug()) {
             Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
 //            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, null); // Usunięcie mLoaderCallback
@@ -138,19 +160,33 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     @Override
     public void onPause() {
         keep_thread_running = false;
+        try {
+            CameraManager cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            String cameraId = cameraManager.getCameraIdList()[0];
+            cameraManager.setTorchMode(cameraId, false);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        if (mOpenCvCameraView != null) {
+//            mOpenCvCameraView.turnFlashOff(); // Wyłączamy latarkę
+            mOpenCvCameraView.disableView();
+        }
         super.onPause();
         if (mOpenCvCameraView != null) {
-            mOpenCvCameraView.disableView();
+            mOpenCvCameraView.disconnectCamera();
         }
     }
 
     @Override
     public void onDestroy() {
-        super.onDestroy();
-        Log.d(TAG, "OnDestroy");
+        keep_thread_running = false;
         if (mOpenCvCameraView != null) {
             mOpenCvCameraView.disableView();
         }
+        if (myInputFrame != null) {
+            myInputFrame.release();
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -165,17 +201,18 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
 
     @Override
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
-        if (appData != null) {
-            if (appData.image_got == null) {
-                appData.image_got = 0; // Inicjalizowanie, jeśli jest null
-            }
-            appData.image_got++;
-        } else {
-            Log.e(TAG, "appData is null!");
+        // Inicjalizacja jeśli jeszcze nie istnieje (podwójne zabezpieczenie)
+        if (appData == null) {
+            appData = new UiDataBundle();
+        }
+        if (timestampQ == null) {
+            timestampQ = new Stack<>();
         }
 
+        appData.image_got = (appData.image_got == null) ? 1 : appData.image_got + 1;
         myInputFrame = inputFrame.rgba();
-        timestampQ.push(System.currentTimeMillis()); // Poprawiony typ Long
+        timestampQ.push(System.currentTimeMillis());
+
         return myInputFrame;
     }
 
@@ -183,21 +220,40 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         // Inicjalizujemy widok kamery, aby działał poprawnie po przyznaniu uprawnień
         mOpenCvCameraView.setCameraPermissionGranted(); // Sprawdzamy dostępność kamery
         mOpenCvCameraView.enableView(); // Umożliwiamy widok kamery
-        Log.d(TAG, "Camera started successfully.");
+//        mOpenCvCameraView.turnFlashOn(); // Umożliwiamy widok kamery
+        Log.d(TAG, "Camera started successfully with flash.");
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        // Sprawdzenie, czy uprawnienia do kamery zostały przyznane
         if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Uprawnienia zostały przyznane, uruchamiamy kamerę
                 startCamera();
             } else {
-                // Uprawnienia zostały odmówione
-                Toast.makeText(this, "Permission denied to use the camera", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+
+    public void onClickButtonxd(View view) {
+        if (mOpenCvCameraView != null) {
+            try {
+                // Najpierw zatrzymaj kamerę
+                mOpenCvCameraView.disableView();
+
+                // Potem włącz latarkę
+//                mOpenCvCameraView.turnFlashOn();
+
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    ((javaViewCameraControl) mOpenCvCameraView).toggleFlash();
+                }, 300); // 300ms opóźnienia
+
+                // Ponownie uruchom kamerę
+                mOpenCvCameraView.enableView();
+            } catch (Exception e) {
+                Log.e(TAG, "Flash control error", e);
             }
         }
     }
@@ -315,6 +371,11 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     Thread myThread = new Thread() {
         @Override
         public void run() {
+            // Dodatkowe zabezpieczenie przed null
+            if (appData == null || timestampQ == null || mHandler == null) {
+                Log.e(TAG, "Critical objects not initialized!");
+                return;
+            }
             // Czekaj, aż otrzymamy pierwszą klatkę
             while (true) {
                 try {
