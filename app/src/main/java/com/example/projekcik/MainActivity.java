@@ -1,241 +1,237 @@
 package com.example.projekcik;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ContentValues;
-import android.content.Context;
 import android.content.pm.PackageManager;
-import android.hardware.camera2.CameraAccessException;
-import android.hardware.camera2.CameraCharacteristics;
-import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.*;
 import android.media.MediaRecorder;
 import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
+import android.os.*;
 import android.provider.MediaStore;
 import android.util.Log;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-
-import org.opencv.android.CameraBridgeViewBase;
-import org.opencv.android.OpenCVLoader;
-import org.opencv.core.Core;
-import org.opencv.core.Mat;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Locale;
-import java.util.Stack;
 
-public class MainActivity extends Activity implements CameraBridgeViewBase.CvCameraViewListener2 {
-    private static final String TAG = "MyOpenCV";
-    private static final int CAMERA_PERMISSION_REQUEST_CODE = 100;
+public class MainActivity extends Activity {
 
-    private javaViewCameraControl mOpenCvCameraView;
-    private UiDataBundle appData;
-    private Mat myInputFrame;
-    private DoubleTwoDimQueue dataQ;
-    private Stack<Long> timestampQ;
-    private boolean keep_thread_running = true;
-    private boolean isMeasuring = false;
-    private Handler mHandler;
-    private int image_processed;
-    private int startPointer, endPointer, fftPoints;
-    private boolean first_fft_run = true;
-    private boolean start_fft = false;
-    private boolean init_frames_discard = false;
+    private static final int REQUEST_CAMERA_PERMISSION = 200;
+    private static final String TAG = "Camera2Video";
 
-    private String currentVideoPath;
-    private Uri videoUri;
-
-    private CameraManager cameraManager;
-    private String cameraId;
-
-    private MediaRecorder mediaRecorder;
     private SurfaceView surfaceView;
     private SurfaceHolder surfaceHolder;
+
+    private CameraDevice cameraDevice;
+    private CameraCaptureSession captureSession;
+    private MediaRecorder mediaRecorder;
+    private String cameraId;
+    private CameraManager cameraManager;
+
+    private Uri videoUri;
+    private String currentVideoPath;
+
+    private boolean isRecording = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        appData = new UiDataBundle();
-        timestampQ = new Stack<>();
-        dataQ = new DoubleTwoDimQueue();
-        mHandler = new Handler(Looper.getMainLooper());
-
-        mOpenCvCameraView = findViewById(R.id.HelloOpenCvView);
-        mOpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
-        mOpenCvCameraView.setCvCameraViewListener(this);
-
         surfaceView = findViewById(R.id.surfaceView);
         surfaceHolder = surfaceView.getHolder();
 
-        initFlashlight();
+        cameraManager = (CameraManager) getSystemService(CAMERA_SERVICE);
 
         if (checkPermissions()) {
-            startCamera();
+            setupCamera();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_CAMERA_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                setupCamera(); // ← URUCHOMIENIE setupCamera PO otrzymaniu uprawnień
+            } else {
+                Toast.makeText(this, "Brak uprawnień do kamery", Toast.LENGTH_SHORT).show();
+                finish();
+            }
         }
     }
 
     private boolean checkPermissions() {
-        // teraz jedynie CAMERA
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                    this,
-                    new String[]{android.Manifest.permission.CAMERA},
-                    CAMERA_PERMISSION_REQUEST_CODE
-            );
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{
+                            Manifest.permission.CAMERA,
+                            Manifest.permission.WRITE_EXTERNAL_STORAGE
+                    }, REQUEST_CAMERA_PERMISSION);
             return false;
         }
         return true;
     }
 
-    private void startCamera() {
-        mOpenCvCameraView.setCameraPermissionGranted();
-        mOpenCvCameraView.enableView();
-        Log.d(TAG, "Camera started successfully.");
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
-            if (grantResults.length>0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startCamera();
-            } else {
-                Toast.makeText(this, "Wymagane jest uprawnienie do kamery", Toast.LENGTH_SHORT).show();
-            }
-        }
-    }
-
-    private void initFlashlight() {
-        cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+    private void setupCamera() {
         try {
             for (String id : cameraManager.getCameraIdList()) {
-                CameraCharacteristics c = cameraManager.getCameraCharacteristics(id);
-                Boolean hasFlash = c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
-                Integer facing = c.get(CameraCharacteristics.LENS_FACING);
-                if (hasFlash!=null && hasFlash && facing==CameraCharacteristics.LENS_FACING_BACK) {
+                CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(id);
+                Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
+                if (lensFacing != null && lensFacing == CameraCharacteristics.LENS_FACING_BACK) {
                     cameraId = id;
                     break;
                 }
             }
         } catch (CameraAccessException e) {
-            Log.e(TAG, "initFlashlight error", e);
+            e.printStackTrace();
         }
     }
 
-    private void toggleFlashlight(boolean state) {
-        try {
-            if (cameraId!=null) cameraManager.setTorchMode(cameraId, state);
-        } catch (CameraAccessException e) {
-            Log.e(TAG, "toggleFlashlight error", e);
-        }
-    }
-
-    public void onToggleMeasurement(View view) {
-        Button btn = (Button) view;
-        if (!isMeasuring) {
-            toggleFlashlight(true);
-            // START
-            keep_thread_running = true;
-            new Thread(mainProcessingRunnable).start();
-            new Thread(fftProcessingRunnable).start();
-            isMeasuring = true;
-            btn.setText("Zatrzymaj pomiar");
+    public void onToggleRecording(View view) {
+        Button button = (Button) view;
+        if (!isRecording) {
             try {
                 prepareMediaRecorder();
-                mediaRecorder.start();
-            } catch (IOException e) {
-                Toast.makeText(this, "Błąd uruchamiania nagrywania", Toast.LENGTH_SHORT).show();
-                Log.e(TAG, "MediaRecorder start error", e);
+                if (cameraId == null) {
+                    Toast.makeText(this, "Nie wykryto kamery", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                openCamera();
+                button.setText("Zatrzymaj nagrywanie");
+                isRecording = true;
+            } catch (Exception e) {
+                Toast.makeText(this, "Błąd nagrywania", Toast.LENGTH_SHORT).show();
+                Log.e(TAG, "Error starting recording", e);
             }
         } else {
-            // STOP
-            keep_thread_running = false;
-            isMeasuring = false;
-            toggleFlashlight(false);
-            btn.setText("Rozpocznij pomiar");
-            try {
-                mediaRecorder.stop();
-            } catch (Exception ignore) {}
-            mediaRecorder.release();
-            Toast.makeText(this, "Wideo zapisane w Galerii", Toast.LENGTH_LONG).show();
-            Log.d(TAG, "Zapisano video: " + currentVideoPath);
+            stopRecording();
+            button.setText("Rozpocznij nagrywanie");
+            isRecording = false;
+        }
+    }
+
+    private void openCamera() {
+        try {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
+            cameraManager.openCamera(cameraId, stateCallback, null);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private final CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
+        @Override
+        public void onOpened(@NonNull CameraDevice camera) {
+            cameraDevice = camera;
+            startRecordingSession();
+        }
+
+        @Override
+        public void onDisconnected(@NonNull CameraDevice camera) {
+            camera.close();
+            cameraDevice = null;
+        }
+
+        @Override
+        public void onError(@NonNull CameraDevice camera, int error) {
+            camera.close();
+            cameraDevice = null;
+        }
+    };
+
+    private void startRecordingSession() {
+        try {
+            Surface recorderSurface = mediaRecorder.getSurface();
+
+            CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+            builder.addTarget(recorderSurface);
+            builder.addTarget(surfaceHolder.getSurface());
+
+            // Flash ON
+            builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH);
+
+            cameraDevice.createCaptureSession(
+                    Arrays.asList(recorderSurface, surfaceHolder.getSurface()),
+                    new CameraCaptureSession.StateCallback() {
+                        @Override
+                        public void onConfigured(@NonNull CameraCaptureSession session) {
+                            captureSession = session;
+                            try {
+                                session.setRepeatingRequest(builder.build(), null, null);
+                                mediaRecorder.start();
+                            } catch (CameraAccessException e) {
+                                e.printStackTrace();
+                            }
+                        }
+
+                        @Override
+                        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+                            Toast.makeText(MainActivity.this, "Błąd konfiguracji sesji", Toast.LENGTH_SHORT).show();
+                        }
+                    }, null
+            );
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
         }
     }
 
     private void prepareMediaRecorder() throws IOException {
         mediaRecorder = new MediaRecorder();
 
-        // <-- TU ZMIANA: CAMERA zamiast SURFACE
-        mediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
+        // Dźwięk + obraz
+        mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+
         mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
 
-        String fn = "video_"+ new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) +".mp4";
+        String fn = "video_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".mp4";
         ContentValues v = new ContentValues();
         v.put(MediaStore.Video.Media.DISPLAY_NAME, fn);
         v.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
-        v.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES+"/PomiarVideos");
+        v.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/PomiarVideos");
 
-        Uri uri = getContentResolver()
-                .insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, v);
-        if (uri==null) throw new IOException("Nie można utworzyć pliku video");
+        Uri uri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, v);
+        if (uri == null) throw new IOException("Nie można utworzyć pliku video");
         videoUri = uri;
         currentVideoPath = uri.toString();
 
         FileDescriptor fd = getContentResolver().openFileDescriptor(uri, "w").getFileDescriptor();
         mediaRecorder.setOutputFile(fd);
 
-        mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
         mediaRecorder.setVideoEncodingBitRate(10_000_000);
         mediaRecorder.setVideoFrameRate(30);
-        mediaRecorder.setVideoSize(1280,720);
-
-        // podgląd w Twoim SurfaceView
+        mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+        mediaRecorder.setVideoSize(1280, 720);
         mediaRecorder.setPreviewDisplay(surfaceHolder.getSurface());
-
         mediaRecorder.prepare();
     }
 
-    @Override public void onCameraViewStarted(int w,int h){}
-    @Override public void onCameraViewStopped(){}
-    @Override public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame f){
-        myInputFrame = f.rgba();
-        timestampQ.push(System.currentTimeMillis());
-        return myInputFrame;
-    }
-
-    private Runnable mainProcessingRunnable = ()->{ /* ... jak dawniej ... */ };
-    private Runnable fftProcessingRunnable = ()->{ /* ... jak dawniej ... */ };
-
-    @Override protected void onPause(){
-        super.onPause();
-        keep_thread_running=false;
-        if (mOpenCvCameraView!=null) mOpenCvCameraView.disableView();
-    }
-    @Override protected void onDestroy(){
-        super.onDestroy();
-        keep_thread_running=false;
-        if (mOpenCvCameraView!=null) mOpenCvCameraView.disableView();
-    }
-    @Override protected void onResume(){
-        super.onResume();
-        if (!OpenCVLoader.initDebug()) Log.d(TAG,"OpenCV load failed.");
-        else Log.d(TAG,"OpenCV loaded.");
-        if (mOpenCvCameraView!=null) mOpenCvCameraView.enableView();
+    private void stopRecording() {
+        try {
+            captureSession.stopRepeating();
+            captureSession.abortCaptures();
+            mediaRecorder.stop();
+            mediaRecorder.release();
+            cameraDevice.close();
+            cameraDevice = null;
+            Toast.makeText(this, "Wideo zapisane!", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Log.e(TAG, "Błąd zatrzymania nagrywania", e);
+        }
     }
 }

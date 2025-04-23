@@ -123,7 +123,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Start Measurement"
-            android:onClick="onToggleMeasurement"
+            android:onClick="onToggleRecording"
             android:backgroundTint="#3F51B5"
             android:textColor="#FFFFFF"
             android:padding="12dp"
