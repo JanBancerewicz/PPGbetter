@@ -26,30 +26,20 @@
             android:textColor="#222222"
             android:layout_marginBottom="16dp" />
 
-        <!-- Camera View -->
-        <FrameLayout
-            android:id="@+id/layout_camera_preview"
+        <!-- Surface View -->
+        <SurfaceView
+            android:id="@+id/surfaceView"
             android:layout_width="300dp"
-            android:layout_height="300dp"
-            android:background="#000000"
-            android:layout_marginBottom="24dp">
+            android:layout_height="225dp" />
 
-            <com.example.projekcik.javaViewCameraControl
-                android:id="@+id/HelloOpenCvView"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:visibility="gone"
-                opencv:show_fps="true"
-                opencv:camera_id="any" />
-        </FrameLayout>
-
-        <!-- Data Header Row -->
+        <!-- Data Header Row
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center"
             android:layout_marginBottom="8dp">
+
 
             <TextView
                 android:id="@+id/data1_head"
@@ -81,8 +71,8 @@
                 android:textSize="16sp"
                 android:gravity="center" />
         </LinearLayout>
-
-        <!-- Data Value Row -->
+        -->
+        <!-- Data Value Row
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -117,13 +107,14 @@
                 android:textSize="18sp"
                 android:gravity="center" />
         </LinearLayout>
+        -->
 
         <!-- Toggle Button -->
         <Button
             android:id="@+id/buttonToggle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Start Measurement"
+            android:text="@string/measurement_button_start"
             android:onClick="onToggleRecording"
             android:backgroundTint="#3F51B5"
             android:textColor="#FFFFFF"
@@ -131,12 +122,12 @@
             android:layout_marginTop="16dp"
             android:elevation="4dp" />
 
-        <SurfaceView
-            android:id="@+id/surfaceView"
-            android:layout_width="200dp"
-            android:layout_height="150dp"
-            android:layout_alignParentBottom="true"
-            android:layout_alignParentEnd="true"/>
+        <TextView
+            android:id="@+id/heartRateTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="24sp"
+            android:layout_marginTop="20dp"/>
 
 
     </LinearLayout>
