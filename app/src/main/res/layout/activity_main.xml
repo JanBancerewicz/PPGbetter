@@ -128,5 +128,12 @@
             android:textSize="24sp"
             android:layout_marginTop="20dp"/>
 
+        <SurfaceView
+            android:id="@+id/greenSurfaceView"
+            android:layout_width="match_parent"
+            android:layout_height="240dp"
+            android:layout_marginTop="16dp"/>
+
+
     </LinearLayout>
 </ScrollView>

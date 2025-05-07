@@ -49,6 +49,8 @@ public class MainActivity extends Activity {
     private final int sampleRate = 30; // Hz
     private final int fftSize = 256;
 
+    private SurfaceHolder greenHolder;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -61,9 +63,14 @@ public class MainActivity extends Activity {
 
         cameraManager = (CameraManager) getSystemService(CAMERA_SERVICE);
 
+        SurfaceView greenSurfaceView = findViewById(R.id.greenSurfaceView);
+        greenHolder = greenSurfaceView.getHolder();
+
+
         if (checkPermissions()) {
             setupCamera();
         }
+
     }
 
     @Override
