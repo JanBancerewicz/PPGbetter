@@ -9,6 +9,7 @@ import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.*;
 import android.provider.MediaStore;
+
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -59,8 +60,9 @@ public class MainActivity extends Activity {
 
         if (checkPermissions()) {
             setupCamera();
+
         }
-    }
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -83,10 +85,12 @@ public class MainActivity extends Activity {
                             Manifest.permission.CAMERA,
                             Manifest.permission.WRITE_EXTERNAL_STORAGE
                     }, REQUEST_CAMERA_PERMISSION);
+
             return false;
         }
         return true;
     }
+
 
     private void setupCamera() {
         try {
