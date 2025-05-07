@@ -4,6 +4,8 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ContentValues;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.*;
 import android.media.Image;
@@ -46,10 +48,11 @@ public class MainActivity extends Activity {
 
     private final BlockingQueue<Double> greenSamples = new ArrayBlockingQueue<>(512);
     private TextView heartRateTextView;
-    private final int sampleRate = 30; // Hz
     private final int fftSize = 256;
 
     private SurfaceHolder greenHolder;
+
+    ImageReader imageReader;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -180,7 +183,7 @@ public class MainActivity extends Activity {
 
     private void startRecordingSession() {
         try {
-            ImageReader imageReader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888, 2);
+            imageReader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888, 2);
             imageReader.setOnImageAvailableListener(this::analyzeImage, null);
 
             CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
@@ -277,6 +280,9 @@ public class MainActivity extends Activity {
             mediaRecorder.release();
             cameraDevice.close();
             cameraDevice = null;
+            if(imageReader != null) {
+                imageReader.close();
+            }
             Toast.makeText(this, "Wideo zapisane!", Toast.LENGTH_SHORT).show();
 
             openCamera();
@@ -289,15 +295,46 @@ public class MainActivity extends Activity {
         Image image = reader.acquireLatestImage();
         if (image == null) return;
 
+        int width = image.getWidth();
+        int height = image.getHeight();
         Image.Plane yPlane = image.getPlanes()[0];
         ByteBuffer yBuffer = yPlane.getBuffer();
-        int sum = 0;
-        int count = yBuffer.remaining();
+        int pixelStride = yPlane.getPixelStride();
+        int rowStride = yPlane.getRowStride();
 
-        while (yBuffer.hasRemaining()) {
-            sum += yBuffer.get() & 0xFF;
+        // Tworzymy bitmapę do wyświetlenia
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+
+        // Tablica do tymczasowego przechowania luma -> pseudozieleni
+        int[] pixels = new int[width * height];
+
+        yBuffer.rewind();
+        for (int row = 0; row < height; row++) {
+            for (int col = 0; col < width; col++) {
+                int yIndex = row * rowStride + col * pixelStride;
+                if (yIndex >= yBuffer.limit()) continue;
+                int y = yBuffer.get(yIndex) & 0xFF;
+                int greenColor = (0xFF << 24) | (0 << 16) | (y << 8) | 0;
+                pixels[row * width + col] = greenColor;
+            }
         }
 
+        bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
+
+        // Wyświetl na greenHolder
+        Canvas canvas = greenHolder.lockCanvas();
+        if (canvas != null) {
+            canvas.drawBitmap(bitmap, 0, 0, null);
+            greenHolder.unlockCanvasAndPost(canvas);
+        }
+
+        // Średnia jasność jako próbka sygnału
+        int sum = 0;
+        int count = pixels.length;
+        for (int val : pixels) {
+            int green = (val >> 8) & 0xFF;
+            sum += green;
+        }
         double average = sum / (double) count;
 
         if (greenSamples.remainingCapacity() == 0) {
@@ -312,6 +349,7 @@ public class MainActivity extends Activity {
         }
     }
 
+
     private void computeHeartRate() {
         double[][] fftInput = new double[fftSize][2];
         Double[] samplesArray = greenSamples.toArray(new Double[0]);
@@ -323,6 +361,8 @@ public class MainActivity extends Activity {
         double[] energy = fftLib.fft_energy_squared(fftInput, fftSize);
 
         // Szukaj dominującej częstotliwości w zakresie 0.66–3.33 Hz (40–200 BPM)
+        // Hz
+        int sampleRate = 30;
         int start = (int) (0.66 * fftSize / sampleRate);
         int end = (int) (3.33 * fftSize / sampleRate);
         int maxIndex = start;
@@ -334,6 +374,16 @@ public class MainActivity extends Activity {
 
         double frequency = (double) maxIndex * sampleRate / fftSize;
         int bpm = (int) (frequency * 60);
+
+        Log.d("HR", "Samples size: " + samplesArray.length);
+
+        for (int i = 0; i < 10; i++) {
+            Log.d("HR", "Sample[" + i + "]: " + samplesArray[i]);
+        }
+
+        Log.d("HR", "Max FFT index: " + maxIndex + " -> frequency: " + frequency + " Hz");
+        Log.d("HR", "Computed BPM: " + bpm);
+
 
         runOnUiThread(() -> heartRateTextView.setText("HR: " + bpm + " BPM"));
     }
