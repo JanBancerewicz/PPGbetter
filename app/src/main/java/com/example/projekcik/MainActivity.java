@@ -46,7 +46,7 @@ public class MainActivity extends Activity {
     private boolean isRecording = false;
 
 
-    private final BlockingQueue<Double> greenSamples = new ArrayBlockingQueue<>(512);
+    private final BlockingQueue<Double> greenSamples = new ArrayBlockingQueue<>(256);
     private TextView heartRateTextView;
     private final int fftSize = 256;
 
@@ -291,6 +291,13 @@ public class MainActivity extends Activity {
         }
     }
 
+    private double lastAverage = 0;
+    private boolean wasDecreasing = false;
+
+
+    private final Deque<Double> recentAverages = new ArrayDeque<>();
+    private final List<Long> peakTimestamps = new ArrayList<>();
+
     private void analyzeImage(ImageReader reader) {
         Image image = reader.acquireLatestImage();
         if (image == null) return;
@@ -302,11 +309,11 @@ public class MainActivity extends Activity {
         int pixelStride = yPlane.getPixelStride();
         int rowStride = yPlane.getRowStride();
 
-        // Tworzymy bitmapę do wyświetlenia
         Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-
-        // Tablica do tymczasowego przechowania luma -> pseudozieleni
         int[] pixels = new int[width * height];
+
+        int sum = 0;
+        int count = 0;
 
         yBuffer.rewind();
         for (int row = 0; row < height; row++) {
@@ -314,6 +321,10 @@ public class MainActivity extends Activity {
                 int yIndex = row * rowStride + col * pixelStride;
                 if (yIndex >= yBuffer.limit()) continue;
                 int y = yBuffer.get(yIndex) & 0xFF;
+
+                sum += y;
+                count++;
+
                 int greenColor = (0xFF << 24) | (0 << 16) | (y << 8) | 0;
                 pixels[row * width + col] = greenColor;
             }
@@ -321,22 +332,33 @@ public class MainActivity extends Activity {
 
         bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
 
-        // Wyświetl na greenHolder
         Canvas canvas = greenHolder.lockCanvas();
         if (canvas != null) {
-//            canvas.drawBitmap(bitmap, 0, 0, null);
             canvas.drawBitmap(bitmap, null, greenHolder.getSurfaceFrame(), null);
             greenHolder.unlockCanvasAndPost(canvas);
         }
 
-        // Średnia jasność jako próbka sygnału
-        int sum = 0;
-        int count = pixels.length;
-        for (int val : pixels) {
-            int green = (val >> 8) & 0xFF;
-            sum += green;
-        }
         double average = sum / (double) count;
+
+        // Dodaj do bufora 3 ostatnich wartości
+        if (recentAverages.size() == 3) {
+            recentAverages.removeFirst();
+        }
+        recentAverages.addLast(average);
+
+        if (recentAverages.size() == 3) {
+            double prev = recentAverages.toArray(new Double[0])[0];
+            double curr = recentAverages.toArray(new Double[0])[1];
+            double next = recentAverages.toArray(new Double[0])[2];
+
+            if (curr > prev && curr > next) {
+                long now = System.currentTimeMillis();
+                if (peakTimestamps.isEmpty() || now - peakTimestamps.get(peakTimestamps.size() - 1) > 600) {
+                    peakTimestamps.add(now);
+                    Log.d("HR", "Pik! " + now);
+                }
+            }
+        }
 
         if (greenSamples.remainingCapacity() == 0) {
             greenSamples.poll();
@@ -346,11 +368,9 @@ public class MainActivity extends Activity {
         image.close();
 
         if (greenSamples.size() >= fftSize) {
-            var bpm = computeHeartRate();
+            int bpm = computeHeartRate();
             runOnUiThread(() -> heartRateTextView.setText("HR: " + bpm + " BPM"));
-        }
-        else {
-            //TODO: this is not necessery but it should display in remaining seconds
+        } else {
             int remainingSamples = fftSize - greenSamples.size();
             runOnUiThread(() ->
                     heartRateTextView.setText(String.format("%d more samples", remainingSamples)));
@@ -358,41 +378,50 @@ public class MainActivity extends Activity {
     }
 
 
+    private final List<Integer> recentBpms = new ArrayList<>();
+    private final int MAX_BPM_HISTORY = 5;
+
     private int computeHeartRate() {
-        double[][] fftInput = new double[fftSize][2];
-        Double[] samplesArray = greenSamples.toArray(new Double[0]);
-        for (int i = 0; i < fftSize; i++) {
-            fftInput[i][0] = samplesArray[i]; // Real part
-            fftInput[i][1] = 0.0;             // Imaginary part
+        if (peakTimestamps.size() < 2) return 0;
+
+        long now = System.currentTimeMillis();
+
+        // Usuń stare piki starsze niż 10 sekund
+        while (peakTimestamps.size() > 1 && now - peakTimestamps.get(0) > 10_000) {
+            peakTimestamps.remove(0);
         }
 
-        double[] energy = fftLib.fft_energy_squared(fftInput, fftSize);
+        if (peakTimestamps.size() < 2) return 0;
 
-        // Szukaj dominującej częstotliwości w zakresie 0.66–3.33 Hz (40–200 BPM)
-        // Hz
-        int sampleRate = 30;
-        int start = (int) (0.66 * fftSize / sampleRate);
-        int end = (int) (3.33 * fftSize / sampleRate);
-        int maxIndex = start;
-        for (int i = start + 1; i < end; i++) {
-            if (energy[i] > energy[maxIndex]) {
-                maxIndex = i;
-            }
+        List<Long> intervals = new ArrayList<>();
+        for (int i = 1; i < peakTimestamps.size(); i++) {
+            long diff = peakTimestamps.get(i) - peakTimestamps.get(i - 1);
+        //    if (diff >= 250) { // filtruj bardzo krótkie odstępy (fałszywe piki)
+                intervals.add(diff);
+        //    }
         }
 
-        double frequency = (double) maxIndex * sampleRate / fftSize;
-        int bpm = (int) (frequency * 60);
+        if (intervals.isEmpty()) return 0;
 
-        Log.d("HR", "Samples size: " + samplesArray.length);
-
-        for (int i = 0; i < 10; i++) {
-            Log.d("HR", "Sample[" + i + "]: " + samplesArray[i]);
+        intervals.sort(Long::compare);
+        long medianInterval;
+        int n = intervals.size();
+        if (n % 2 == 0) {
+            medianInterval = (intervals.get(n / 2 - 1) + intervals.get(n / 2)) / 2;
+        } else {
+            medianInterval = intervals.get(n / 2);
         }
 
-        Log.d("HR", "Max FFT index: " + maxIndex + " -> frequency: " + frequency + " Hz");
-        Log.d("HR", "Computed BPM: " + bpm);
+        int bpm = (int)(60000.0 / medianInterval);
+
+        if (bpm < 45 || bpm > 180) {
+            Log.w("HR", "Zły pomiar BPM: " + bpm + " – ignoruję.");
+            return 0;
+        }
+
         return bpm;
     }
+
 
 
 }
