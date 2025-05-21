@@ -456,7 +456,6 @@ public class MainActivity extends Activity {
         if (greenSamples.size() >= fftSize) {
             int bpm = computeHeartRate();
 
-            // TODO: set button to enabled DONE
             if(!breathButton.isEnabled()){
                 breathButton.setEnabled(true);
             }
