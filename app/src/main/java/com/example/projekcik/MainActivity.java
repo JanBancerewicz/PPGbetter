@@ -284,7 +284,7 @@ public class MainActivity extends Activity {
                 imageReader.close();
             }
             Toast.makeText(this, "Wideo zapisane!", Toast.LENGTH_SHORT).show();
-
+            greenSamples.clear();
             openCamera();
         } catch (Exception e) {
             Log.e("Stop recording error", e.toString());
