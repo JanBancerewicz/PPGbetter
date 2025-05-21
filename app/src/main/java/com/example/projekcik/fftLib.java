@@ -3,7 +3,6 @@ package com.example.projekcik;
 /**
  * Created by asamajda on 09-Feb-16.
  */
-import java.util.Arrays;
 
 public class fftLib{
 
@@ -110,6 +109,47 @@ public class fftLib{
         res[1] = Math.sin(omega);
 
         return res;
+    }
+
+    public static double[] highPassFilter(Double[] x, double fps, double cutoff) {
+        double RC = 1.0 / (2 * Math.PI * cutoff);
+        double dt = 1.0 / fps;
+        double alpha = RC / (RC + dt);
+
+        double[] y = new double[x.length];
+        y[0] = x[0]; // inicjalizacja
+
+        for (int i = 1; i < x.length; i++) {
+            y[i] = alpha * (y[i - 1] + x[i] - x[i - 1]);
+        }
+
+        return y;
+    }
+
+    public static double[] lowPassFilter(double[] input, double sampleRate, double cutoffFreq) {
+        double[] output = new double[input.length];
+
+        // Stała filtra
+        double dt = 1.0 / sampleRate;
+        double RC = 1.0 / (2 * Math.PI * cutoffFreq);
+        double alpha = dt / (RC + dt);
+
+        // Inicjalizacja pierwszej próbki
+        output[0] = input[0];
+
+        // Filtracja
+        for (int i = 1; i < input.length; i++) {
+            output[i] = output[i - 1] + alpha * (input[i] - output[i - 1]);
+        }
+
+        return output;
+    }
+
+    public static void applyHammingWindow(double[] data) {
+        int N = data.length;
+        for (int n = 0; n < N; n++) {
+            data[n] = data[n] * (0.54 - 0.46 * Math.cos(2 * Math.PI * n / (N - 1)));
+        }
     }
 
     public static double[][] fft(double[][] x_samples, int points){

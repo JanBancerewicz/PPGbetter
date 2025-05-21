@@ -46,9 +46,17 @@ public class MainActivity extends Activity {
     private boolean isRecording = false;
 
 
-    private final BlockingQueue<Double> greenSamples = new ArrayBlockingQueue<>(512);
+//    private final BlockingQueue<Double> greenSamples = new ArrayBlockingQueue<>(512);
+
+    private Queue<Double> greenSamples = new ArrayDeque<>();
+    private Queue<Double> sampleTimestamps = new ArrayDeque<>();
     private TextView heartRateTextView;
     private final int fftSize = 256;
+    private long startTime = 0;
+    private double timer = 0.0;
+    private final Deque<Integer> recentBpms = new ArrayDeque<>();
+    private final int bpmWindowSize = 5;
+    private int lastBpm = -1;
 
     private SurfaceHolder greenHolder;
 
@@ -75,6 +83,22 @@ public class MainActivity extends Activity {
         }
 
     }
+
+    private Double[] applyMovingAverage(Double[] samples, int windowSize) {
+        Double[] result = new Double[samples.length];
+        for (int i = 0; i < samples.length; i++) {
+            int count = 0;
+            Double sum = 0.0;
+            // Sumuj ostatnie 'windowSize' próbek (lub mniej, jeśli nie ma ich wystarczająco)
+            for (int j = Math.max(0, i - windowSize + 1); j <= i; j++) {
+                sum += samples[j];
+                count++;
+            }
+            result[i] = sum / count;
+        }
+        return result;
+    }
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -120,6 +144,7 @@ public class MainActivity extends Activity {
 
     public void onToggleRecording(View view) {
         Button button = (Button) view;
+        Log.d("START RECORDING", "elo");
         if (!isRecording) {
             try {
                 if (captureSession != null) {
@@ -200,6 +225,7 @@ public class MainActivity extends Activity {
                             captureSession = session;
                             try {
                                 session.setRepeatingRequest(builder.build(), null, null);
+                                startTime = System.nanoTime();
                                 mediaRecorder.start();
                             } catch (CameraAccessException e) {
                                 Log.e("Recording session error: ", e.toString());
@@ -295,6 +321,11 @@ public class MainActivity extends Activity {
         Image image = reader.acquireLatestImage();
         if (image == null) return;
 
+        long now = System.nanoTime();
+        timer = (now - startTime) / 1_000_000_000.0;
+        Log.d("TIMER", "Time since start: " + timer + " s");
+
+
         int width = image.getWidth();
         int height = image.getHeight();
         Image.Plane yPlane = image.getPlanes()[0];
@@ -331,17 +362,25 @@ public class MainActivity extends Activity {
 
         // Średnia jasność jako próbka sygnału
         int sum = 0;
-        int count = pixels.length;
-        for (int val : pixels) {
-            int green = (val >> 8) & 0xFF;
-            sum += green;
+        int count = 0;
+        yBuffer.rewind();
+        for (int row = 0; row < height; row++) {
+            for (int col = 0; col < width; col++) {
+                int yIndex = row * rowStride + col * pixelStride;
+                if (yIndex >= yBuffer.limit()) continue;
+                int y = yBuffer.get(yIndex) & 0xFF;
+                sum += y;
+                count++;
+            }
         }
         double average = sum / (double) count;
 
-        if (greenSamples.remainingCapacity() == 0) {
+        if (greenSamples.size() >= fftSize) {
             greenSamples.poll();
+            sampleTimestamps.poll();
         }
         greenSamples.offer(average);
+        sampleTimestamps.offer(timer);
 
         image.close();
 
@@ -359,20 +398,68 @@ public class MainActivity extends Activity {
 
 
     private int computeHeartRate() {
-        double[][] fftInput = new double[fftSize][2];
-        Double[] samplesArray = greenSamples.toArray(new Double[0]);
-        for (int i = 0; i < fftSize; i++) {
-            fftInput[i][0] = samplesArray[i]; // Real part
-            fftInput[i][1] = 0.0;             // Imaginary part
+        if (greenSamples.size() != sampleTimestamps.size() || greenSamples.size() < fftSize) {
+            return 0;
         }
 
-        double[] energy = fftLib.fft_energy_squared(fftInput, fftSize);
+        // Zbieramy próbki i ich czasy
+        List<Double> values = new ArrayList<>(greenSamples);
+        List<Double> times = new ArrayList<>(sampleTimestamps);
 
-        // Szukaj dominującej częstotliwości w zakresie 0.66–3.33 Hz (40–200 BPM)
-        // Hz
-        int sampleRate = 30;
-        int start = (int) (0.66 * fftSize / sampleRate);
-        int end = (int) (3.33 * fftSize / sampleRate);
+        int N = fftSize;
+        double startTime = times.get(0);
+        double endTime = times.get(N - 1);
+        double duration = endTime - startTime;
+
+        // Ustal równomierną siatkę czasową
+        double[] uniformTime = new double[N];
+        double dt = duration / (N - 1);
+        for (int i = 0; i < N; i++) {
+            uniformTime[i] = startTime + i * dt;
+        }
+
+        // Interpolacja liniowa sygnału do równych odstępów czasowych
+        double[] interpolated = new double[N];
+        int j = 0;
+        for (int i = 0; i < N; i++) {
+            double t = uniformTime[i];
+            while (j < N - 2 && times.get(j + 1) < t) {
+                j++;
+            }
+            double t1 = times.get(j);
+            double t2 = times.get(j + 1);
+            double v1 = values.get(j);
+            double v2 = values.get(j + 1);
+            double alpha = (t - t1) / (t2 - t1);
+            interpolated[i] = v1 + alpha * (v2 - v1);
+        }
+
+        // Zastosuj filtrację i okno Hamming
+        Double[] interpolatedObj = Arrays.stream(interpolated).boxed().toArray(Double[]::new);
+        Double[] movingAvgSamples = applyMovingAverage(interpolatedObj, 5);
+
+        double[] filteredHigh = fftLib.highPassFilter(movingAvgSamples, 1.0 / dt, 0.8); // cutoff = 0.8 Hz
+        double[] filtered = fftLib.lowPassFilter(filteredHigh, 1.0 / dt, 2.5);           // cutoff = 2.5 Hz
+        fftLib.applyHammingWindow(filtered);
+
+        // Przygotuj dane do FFT
+        double[][] fftInput = new double[N][2];
+        for (int i = 0; i < N; i++) {
+            fftInput[i][0] = filtered[i];
+            fftInput[i][1] = 0.0;
+        }
+
+        // Oblicz energię FFT
+        double[] energy = fftLib.fft_energy_squared(fftInput, N);
+
+        double sampleRate = 1.0 / dt; // rzeczywista częstotliwość próbkowania po interpolacji
+
+        // Znajdź dominującą częstotliwość w zakresie 0.8–2.5 Hz (48–150 BPM)
+        double minFreq = 0.8;
+        double maxFreq = 2.5;
+        int start = (int) (minFreq * N / sampleRate);
+        int end = Math.min((int) (maxFreq * N / sampleRate), energy.length);
+
         int maxIndex = start;
         for (int i = start + 1; i < end; i++) {
             if (energy[i] > energy[maxIndex]) {
@@ -380,19 +467,51 @@ public class MainActivity extends Activity {
             }
         }
 
-        double frequency = (double) maxIndex * sampleRate / fftSize;
-        int bpm = (int) (frequency * 60);
+        double peak = energy[maxIndex];
+        double avgSurrounding = 0.0;
+        int count = 0;
+        for (int i = maxIndex - 3; i <= maxIndex + 3; i++) {
+            if (i >= start && i < end && i != maxIndex) {
+                avgSurrounding += energy[i];
+                count++;
+            }
+        }
+        avgSurrounding /= count;
 
-        Log.d("HR", "Samples size: " + samplesArray.length);
-
-        for (int i = 0; i < 10; i++) {
-            Log.d("HR", "Sample[" + i + "]: " + samplesArray[i]);
+        if (peak < avgSurrounding * 1.3) {
+            Log.d("HR", "Peak too weak: " + peak + " vs avg: " + avgSurrounding);
+            return lastBpm > 0 ? lastBpm : 0;
         }
 
+        double frequency = (double) maxIndex * sampleRate / N;
+        int bpm = (int) (frequency * 60);
+
+        if (lastBpm > 0) {
+            int maxDelta = 10;
+            bpm = Math.max(lastBpm - maxDelta, Math.min(lastBpm + maxDelta, bpm));
+        }
+        lastBpm = bpm;
+
+        // Dodaj do bufora wygładzania
+        recentBpms.add(bpm);
+        if (recentBpms.size() > bpmWindowSize) {
+            recentBpms.removeFirst();
+        }
+
+        int smoothedBpm = 0;
+        for (int val : recentBpms) {
+            smoothedBpm += val;
+        }
+        smoothedBpm /= recentBpms.size();
+
+        Log.d("HR", "Samples duration: " + duration + " s");
+        Log.d("HR", "Interpolated sampleRate: " + sampleRate + " Hz");
         Log.d("HR", "Max FFT index: " + maxIndex + " -> frequency: " + frequency + " Hz");
-        Log.d("HR", "Computed BPM: " + bpm);
-        return bpm;
+        Log.d("HR", "Computed BPM: " + bpm + " | Smoothed BPM: " + smoothedBpm);
+
+        return smoothedBpm;
     }
+
 
 
 }
