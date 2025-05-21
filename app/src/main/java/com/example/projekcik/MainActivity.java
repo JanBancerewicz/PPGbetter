@@ -26,7 +26,9 @@ import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import java.io.File;
 import java.io.FileDescriptor;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
@@ -44,6 +46,9 @@ public class MainActivity extends Activity {
     private String cameraId;
     private CameraManager cameraManager;
     private boolean isRecording = false;
+    private boolean isBreathing = false;
+    private long startTime = 0;
+    private TextView timerTextView;
 
 
     private final BlockingQueue<Double> greenSamples = new ArrayBlockingQueue<>(256);
@@ -54,10 +59,14 @@ public class MainActivity extends Activity {
 
     ImageReader imageReader;
 
+    public Button breathButton;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        timerTextView = findViewById(R.id.timerTextView);
+        breathButton = findViewById(R.id.buttonBreath);
 
         SurfaceView surfaceView = findViewById(R.id.surfaceView);
         surfaceHolder = surfaceView.getHolder();
@@ -74,6 +83,27 @@ public class MainActivity extends Activity {
             setupCamera();
         }
 
+    }
+
+    private final Handler timerHandler = new Handler(Looper.getMainLooper());
+    private final Runnable timerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            long elapsedMillis = System.currentTimeMillis() - startTime;
+            int seconds = (int) (elapsedMillis / 1000);
+            int minutes = seconds / 60;
+            seconds = seconds % 60;
+            timerTextView.setText(String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds));
+            timerHandler.postDelayed(this, 1000);
+        }
+    };
+
+    private void startTimerRunnable() {
+        timerHandler.post(timerRunnable);
+    }
+
+    private void stopTimerRunnable() {
+        timerHandler.removeCallbacks(timerRunnable);
     }
 
     @Override
@@ -131,6 +161,8 @@ public class MainActivity extends Activity {
                     Toast.makeText(this, "Nie wykryto kamery", Toast.LENGTH_SHORT).show();
                     return;
                 }
+                startTime = System.currentTimeMillis();
+                startTimerRunnable();
                 openCamera();
                 button.setText(R.string.measurement_button_end);
                 isRecording = true;
@@ -140,10 +172,62 @@ public class MainActivity extends Activity {
             }
         } else {
             stopRecording();
+            stopTimerRunnable();
             button.setText(R.string.measurement_button_start);
             isRecording = false;
 
         }
+    }
+
+    private void appendLogToFile(String text, int logtype) {
+        String prefix;
+        if (logtype == 1) {
+            prefix = "breath";
+        } else if (logtype == 2) {
+            prefix = "pulse";
+        } else {
+            Log.e("Logger", "Unknown log type: " + logtype);
+            return;
+        }
+
+        // Data i czas w nazwie pliku
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault());
+        String timestamp = sdf.format(new Date(startTime)); // startTime = moment rozpoczęcia pomiaru
+        String fileName = prefix + "_" + timestamp + ".txt";
+
+        try {
+            File file = new File(getFilesDir(), fileName);
+            FileWriter writer = new FileWriter(file, true); // tryb dopisywania
+            writer.append(text);
+//                    .append("\n");
+            writer.flush();
+            writer.close();
+        } catch (IOException e) {
+            Log.e("Logger", "Error writing to " + fileName, e);
+        }
+    }
+
+
+    public void onToggleBreath(View view) {
+        Button button = (Button) view;
+        long now = System.currentTimeMillis();
+        long timer = now - startTime;
+        String state;
+
+
+        if (!isBreathing) {
+            state = "inhale";
+            button.setText(R.string.measurement_button_end_wy);
+            isBreathing = true;
+        } else {
+            state = "exhale";
+            button.setText(R.string.measurement_button_start_wd);
+            isBreathing = false;
+        }
+
+        String logLine = timer + "; " + state + "\n"; // tu jest wiadomosc zapisywana do pliku
+        Log.d("Breath", timer + " : " + state);
+        appendLogToFile(logLine, 1);
     }
 
 
@@ -353,9 +437,11 @@ public class MainActivity extends Activity {
 
             if (curr > prev && curr > next) {
                 long now = System.currentTimeMillis();
+                long timer = now - startTime;
+
                 if (peakTimestamps.isEmpty() || now - peakTimestamps.get(peakTimestamps.size() - 1) > 600) {
                     peakTimestamps.add(now);
-                    Log.d("HR", "Pik! " + now);
+                    Log.d("HR", "Pik! " + timer);
                 }
             }
         }
@@ -369,6 +455,18 @@ public class MainActivity extends Activity {
 
         if (greenSamples.size() >= fftSize) {
             int bpm = computeHeartRate();
+
+            // TODO: set button to enabled DONE
+            if(!breathButton.isEnabled()){
+                breathButton.setEnabled(true);
+            }
+
+            long currentTime = System.currentTimeMillis(); //now
+            long elapsed = currentTime - startTime;
+            String bpmLog = elapsed + "; " + bpm + "\n";
+            appendLogToFile(bpmLog, 2); // logtype = 2 dla pulsu
+
+
             runOnUiThread(() -> heartRateTextView.setText("HR: " + bpm + " BPM"));
         } else {
             int remainingSamples = fftSize - greenSamples.size();

@@ -7,4 +7,6 @@
     <string name="Data4">Calculating</string>
     <string name="measurement_button_start">Rozpocznij nagrywanie</string>
     <string name="measurement_button_end">Zatrzymaj nagrywanie</string>
+    <string name="measurement_button_start_wd">Wdech (Inhale)</string>
+    <string name="measurement_button_end_wy">Wydech (Exhale)</string>
 </resources>
