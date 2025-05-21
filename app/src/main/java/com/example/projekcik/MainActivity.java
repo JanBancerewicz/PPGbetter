@@ -324,7 +324,8 @@ public class MainActivity extends Activity {
         // Wyświetl na greenHolder
         Canvas canvas = greenHolder.lockCanvas();
         if (canvas != null) {
-            canvas.drawBitmap(bitmap, 0, 0, null);
+//            canvas.drawBitmap(bitmap, 0, 0, null);
+            canvas.drawBitmap(bitmap, null, greenHolder.getSurfaceFrame(), null);
             greenHolder.unlockCanvasAndPost(canvas);
         }
 
@@ -345,12 +346,19 @@ public class MainActivity extends Activity {
         image.close();
 
         if (greenSamples.size() >= fftSize) {
-            computeHeartRate();
+            var bpm = computeHeartRate();
+            runOnUiThread(() -> heartRateTextView.setText("HR: " + bpm + " BPM"));
+        }
+        else {
+            //TODO: this is not necessery but it should display in remaining seconds
+            int remainingSamples = fftSize - greenSamples.size();
+            runOnUiThread(() ->
+                    heartRateTextView.setText(String.format("%d more samples", remainingSamples)));
         }
     }
 
 
-    private void computeHeartRate() {
+    private int computeHeartRate() {
         double[][] fftInput = new double[fftSize][2];
         Double[] samplesArray = greenSamples.toArray(new Double[0]);
         for (int i = 0; i < fftSize; i++) {
@@ -383,9 +391,7 @@ public class MainActivity extends Activity {
 
         Log.d("HR", "Max FFT index: " + maxIndex + " -> frequency: " + frequency + " Hz");
         Log.d("HR", "Computed BPM: " + bpm);
-
-
-        runOnUiThread(() -> heartRateTextView.setText("HR: " + bpm + " BPM"));
+        return bpm;
     }
 
 
