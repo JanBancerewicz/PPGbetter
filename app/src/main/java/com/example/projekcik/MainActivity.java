@@ -6,6 +6,7 @@ import android.content.ContentValues;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.*;
 import android.media.Image;
@@ -25,6 +26,11 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
+import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.data.Entry;
+import com.github.mikephil.charting.data.LineData;
+import com.github.mikephil.charting.data.LineDataSet;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -50,12 +56,19 @@ public class MainActivity extends Activity {
     private long startTime = 0;
     private TextView timerTextView;
 
+    private LineChart lineChart;
+    private LineDataSet lineDataSet;
+    private LineData lineData;
+    private ArrayList<Entry> entries = new ArrayList<>();
+    private float elapsedTime = 0f;
+
+
 
     private final BlockingQueue<Double> greenSamples = new ArrayBlockingQueue<>(256);
     private TextView heartRateTextView;
     private final int fftSize = 256;
 
-    private SurfaceHolder greenHolder;
+//    private SurfaceHolder greenHolder;
 
     ImageReader imageReader;
 
@@ -75,8 +88,25 @@ public class MainActivity extends Activity {
 
         cameraManager = (CameraManager) getSystemService(CAMERA_SERVICE);
 
-        SurfaceView greenSurfaceView = findViewById(R.id.greenSurfaceView);
-        greenHolder = greenSurfaceView.getHolder();
+//        SurfaceView greenSurfaceView = findViewById(R.id.greenSurfaceView);
+//        greenHolder = greenSurfaceView.getHolder();
+
+        timerTextView = findViewById(R.id.timerTextView);
+        breathButton = findViewById(R.id.buttonBreath);
+        heartRateTextView = findViewById(R.id.heartRateTextView);
+
+        lineChart = findViewById(R.id.lineChart);
+        lineDataSet = new LineDataSet(entries, "Heart Rate Signal");
+        lineDataSet.setColor(Color.RED);
+        lineDataSet.setDrawCircles(false);
+        lineDataSet.setLineWidth(2f);
+
+        lineData = new LineData(lineDataSet);
+        lineChart.setData(lineData);
+        lineChart.getDescription().setEnabled(false);
+        lineChart.getAxisRight().setEnabled(false);
+        lineChart.getXAxis().setDrawLabels(false);
+        lineChart.getLegend().setEnabled(false);
 
 
         if (checkPermissions()) {
@@ -382,6 +412,16 @@ public class MainActivity extends Activity {
     private final Deque<Double> recentAverages = new ArrayDeque<>();
     private final List<Long> peakTimestamps = new ArrayList<>();
 
+    private void addDataPoint(double value) {
+        elapsedTime += 0.1f;
+        if (entries.size() > 100) entries.remove(0);
+        entries.add(new Entry(elapsedTime, (float) value));
+        lineDataSet.notifyDataSetChanged();
+        lineData.notifyDataChanged();
+        lineChart.notifyDataSetChanged();
+        lineChart.invalidate();
+    }
+
     private void analyzeImage(ImageReader reader) {
         Image image = reader.acquireLatestImage();
         if (image == null) return;
@@ -416,13 +456,15 @@ public class MainActivity extends Activity {
 
         bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
 
-        Canvas canvas = greenHolder.lockCanvas();
-        if (canvas != null) {
-            canvas.drawBitmap(bitmap, null, greenHolder.getSurfaceFrame(), null);
-            greenHolder.unlockCanvasAndPost(canvas);
-        }
+//        Canvas canvas = greenHolder.lockCanvas();
+//        if (canvas != null) {
+//            canvas.drawBitmap(bitmap, null, greenHolder.getSurfaceFrame(), null);
+//            greenHolder.unlockCanvasAndPost(canvas);
+//        }
 
         double average = sum / (double) count;
+
+        addDataPoint(average);
 
         // Dodaj do bufora 3 ostatnich wartości
         if (recentAverages.size() == 3) {
