@@ -32,7 +32,7 @@ import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
 
-import okhttp3.WebSocket;
+import com.example.projekcik.WebClient;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -64,6 +64,7 @@ public class MainActivity extends Activity {
     private ArrayList<Entry> entries = new ArrayList<>();
     private float elapsedTime = 0f;
 
+    private WebClient webSocketListener;
 
 
     private final BlockingQueue<Double> greenSamples = new ArrayBlockingQueue<>(256);
@@ -97,6 +98,8 @@ public class MainActivity extends Activity {
         breathButton = findViewById(R.id.buttonBreath);
         heartRateTextView = findViewById(R.id.heartRateTextView);
 
+        webSocketListener = new WebClient();
+        webSocketListener.start();
         lineChart = findViewById(R.id.lineChart);
         lineDataSet = new LineDataSet(entries, "Heart Rate Signal");
         lineDataSet.setColor(Color.RED);
