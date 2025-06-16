@@ -56,6 +56,7 @@ public class MainActivity extends Activity {
     private boolean isRecording = false;
     private boolean isBreathing = false;
     private long startTime = 0;
+    private long webSocketSendCounter = 0;
     private TextView timerTextView;
 
     private LineChart lineChart;
@@ -98,8 +99,8 @@ public class MainActivity extends Activity {
         breathButton = findViewById(R.id.buttonBreath);
         heartRateTextView = findViewById(R.id.heartRateTextView);
 
-        webSocketListener = new WebClient();
-        webSocketListener.start();
+//        webSocketListener = new WebClient();
+//        webSocketListener.start();
         lineChart = findViewById(R.id.lineChart);
         lineDataSet = new LineDataSet(entries, "Heart Rate Signal");
         lineDataSet.setColor(Color.RED);
@@ -205,12 +206,19 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, "Błąd nagrywania", Toast.LENGTH_SHORT).show();
                 Log.e("Start recording error: ", e.toString());
             }
+            try {
+                webSocketListener = new WebClient();
+                webSocketListener.start();
+            } catch (Exception e) {
+                Log.e("WebSocket error: ", e.toString());
+            }
         } else {
             stopRecording();
             stopTimerRunnable();
             button.setText(R.string.measurement_button_start);
             isRecording = false;
-
+            startTime = 0;
+            webSocketListener.close();
         }
     }
 
@@ -513,12 +521,22 @@ public class MainActivity extends Activity {
             appendLogToFile(bpmLog, 2); // logtype = 2 dla pulsu
 
 
+            long webElapsed = currentTime - webSocketSendCounter; // time since last send
+            if (webElapsed >= 1000) {
+                webSocketSendCounter -= 1000;
+                float bpmf = (float)bpm;
+                webSocketListener.send(Float.toString(bpmf));
+            }
+
             runOnUiThread(() -> heartRateTextView.setText("HR: " + bpm + " BPM"));
         } else {
             int remainingSamples = fftSize - greenSamples.size();
             runOnUiThread(() ->
                     heartRateTextView.setText(String.format("%d more samples", remainingSamples)));
         }
+
+//        long currentTime = System.currentTimeMillis();
+
     }
 
 

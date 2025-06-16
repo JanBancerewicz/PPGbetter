@@ -24,7 +24,7 @@ public class WebClient{
 
     public void start() {
         Request request = new Request.Builder()
-                .url("wss://echo.websocket.org") // Replace with your WebSocket URL
+                .url("127.0.0.1:8765")
                 .build();
 
         webSocket = client.newWebSocket(request, new WebSocketListener() {
@@ -57,6 +57,14 @@ public class WebClient{
             }
         });
         client.dispatcher().executorService().shutdown();
+    }
+
+    public void send(@NonNull String str) {
+        webSocket.send(str);
+    }
+
+    public void close() {
+        webSocket.close(1000, "End of recording");
     }
 
 }
