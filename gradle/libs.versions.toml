@@ -8,6 +8,7 @@ appcompat = "1.6.1"
 material = "1.10.0"
 activity = "1.8.0"
 constraintlayout = "2.1.4"
+okhttp3 = "4.12.0"
 
 [libraries]
 jtransforms = { module = "org.jtransforms:jtransforms", version.ref = "jtransforms" }
@@ -18,6 +19,7 @@ appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "a
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 activity = { group = "androidx.activity", name = "activity", version.ref = "activity" }
 constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
+okhttp3 = {group = "com.squareup.okhttp3:okhttp", name = "okhttp3", version.ref = "okhttp3"}
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

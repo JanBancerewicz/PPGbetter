@@ -32,6 +32,8 @@ import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
 
+import okhttp3.WebSocket;
+
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileWriter;
