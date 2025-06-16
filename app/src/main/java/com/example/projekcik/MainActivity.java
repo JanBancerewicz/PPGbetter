@@ -198,6 +198,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 startTime = System.currentTimeMillis();
+                webSocketSendCounter = System.currentTimeMillis();
                 startTimerRunnable();
                 openCamera();
                 button.setText(R.string.measurement_button_end);
@@ -210,7 +211,7 @@ public class MainActivity extends Activity {
                 webSocketListener = new WebClient();
                 webSocketListener.start();
             } catch (Exception e) {
-                Log.e("WebSocket error: ", e.toString());
+                Log.e("Websocket", e.toString());
             }
         } else {
             stopRecording();
@@ -218,7 +219,11 @@ public class MainActivity extends Activity {
             button.setText(R.string.measurement_button_start);
             isRecording = false;
             startTime = 0;
-            webSocketListener.close();
+            try {
+                webSocketListener.close();
+            } catch (Exception e){
+                Log.i("Websocket","No connection established");
+            }
         }
     }
 
@@ -525,7 +530,11 @@ public class MainActivity extends Activity {
             if (webElapsed >= 1000) {
                 webSocketSendCounter -= 1000;
                 float bpmf = (float)bpm;
-                webSocketListener.send(Float.toString(bpmf));
+                try {
+                    webSocketListener.send(Float.toString(bpmf));
+                } catch (NullPointerException e) {
+                    Log.i("Websocket","No connection");
+                }
             }
 
             runOnUiThread(() -> heartRateTextView.setText("HR: " + bpm + " BPM"));

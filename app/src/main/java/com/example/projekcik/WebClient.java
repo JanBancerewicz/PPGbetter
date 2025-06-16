@@ -24,30 +24,30 @@ public class WebClient{
 
     public void start() {
         Request request = new Request.Builder()
-                .url("127.0.0.1:8765")
+                .url("ws://ip:8765")
                 .build();
 
         webSocket = client.newWebSocket(request, new WebSocketListener() {
             @Override
             public void onOpen(@NonNull WebSocket webSocket, @NonNull Response response) {
-                Log.i("WEBSOCKET","WebSocket opened");
-                webSocket.send("Hello, WebSocket!");
+                Log.i("Websocket","WebSocket opened");
+//                webSocket.send("Hello, WebSocket!");
             }
 
             @Override
             public void onMessage(WebSocket webSocket, String text) {
-                Log.i("Message received: ", text);
+                Log.i("Websocket", "Msg: " + text);
             }
 
             @Override
             public void onMessage(WebSocket webSocket, ByteString bytes) {
-                Log.i("Message received: ", bytes.hex());
+                Log.i("Websocket", "Msg: " + bytes.hex());
             }
 
             @Override
             public void onClosing(WebSocket webSocket, int code, String reason) {
                 webSocket.close(1000, null);
-                Log.i("WebSocket closing: ", reason);
+                Log.i("Websocket" ,"WebSocket closing: " + reason);
             }
 
             @Override
