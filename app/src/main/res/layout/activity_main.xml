@@ -153,6 +153,33 @@
                 android:enabled ="false"
                 />
 
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/ipInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical" >
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="IP:"
+                android:textSize="16sp"
+                android:layout_marginEnd="8dp"/>
+
+            <EditText
+                android:id="@+id/ipEditText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="192.168.0.1"
+                android:inputType="text"
+                android:background="@android:drawable/editbox_background"
+                android:padding="8dp"/>
         </LinearLayout>
 
         <TextView

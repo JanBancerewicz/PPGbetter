@@ -16,15 +16,17 @@ public class WebClient{
     private final OkHttpClient client;
     private WebSocket webSocket;
     private final CountDownLatch latch;
+    private String ipAddress = "127.0.0.1";
 
-    public WebClient() {
+    public WebClient(String ipAddress) {
         client = new OkHttpClient();
         latch = new CountDownLatch(1);
+        this.ipAddress = ipAddress;
     }
 
     public void start() {
         Request request = new Request.Builder()
-                .url("ws://ip:8765")
+                .url(String.format("ws://%s:8765", ipAddress))
                 .build();
 
         webSocket = client.newWebSocket(request, new WebSocketListener() {

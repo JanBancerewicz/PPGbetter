@@ -20,6 +20,7 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -65,6 +66,7 @@ public class MainActivity extends Activity {
     private ArrayList<Entry> entries = new ArrayList<>();
     private float elapsedTime = 0f;
 
+    EditText ipEditText;
     private WebClient webSocketListener;
 
 
@@ -98,6 +100,7 @@ public class MainActivity extends Activity {
         timerTextView = findViewById(R.id.timerTextView);
         breathButton = findViewById(R.id.buttonBreath);
         heartRateTextView = findViewById(R.id.heartRateTextView);
+        ipEditText = findViewById(R.id.ipEditText);
 
 //        webSocketListener = new WebClient();
 //        webSocketListener.start();
@@ -208,7 +211,8 @@ public class MainActivity extends Activity {
                 Log.e("Start recording error: ", e.toString());
             }
             try {
-                webSocketListener = new WebClient();
+                String ipAdress = ipEditText.getText().toString();
+                webSocketListener = new WebClient(ipAdress);
                 webSocketListener.start();
             } catch (Exception e) {
                 Log.e("Websocket", e.toString());
