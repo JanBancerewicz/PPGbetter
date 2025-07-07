@@ -486,6 +486,16 @@ public class MainActivity extends Activity {
 
         double average = sum / (double) count;
 
+//////////// wysylanie pure sygnalu
+
+        try {
+            webSocketListener.send(Double.toString(average));
+        } catch (NullPointerException e) {
+            Log.i("Websocket", "No connection");
+        }
+
+//////////// wysylanie pure sygnalu
+
         addDataPoint(average);
 
         // Dodaj do bufora 3 ostatnich wartości
@@ -530,16 +540,26 @@ public class MainActivity extends Activity {
             appendLogToFile(bpmLog, 2); // logtype = 2 dla pulsu
 
 
-            long webElapsed = currentTime - webSocketSendCounter; // time since last send
-            if (webElapsed >= 1000) {
-                webSocketSendCounter -= 1000;
-                float bpmf = (float)bpm;
-                try {
-                    webSocketListener.send(Float.toString(bpmf));
-                } catch (NullPointerException e) {
-                    Log.i("Websocket","No connection");
-                }
+//////////////////////// zamiana bpm na average
+
+//            long webElapsed = currentTime - webSocketSendCounter; // time since last send
+//            if (webElapsed >= 1000) {
+//                webSocketSendCounter -= 1000;
+//                float bpmf = (float)bpm;
+//                try {
+//                    webSocketListener.send(Float.toString(bpmf));
+//                } catch (NullPointerException e) {
+//                    Log.i("Websocket","No connection");
+//                }
+//            }
+
+            try {
+                webSocketListener.send(Double.toString(average));
+            } catch (NullPointerException e) {
+                Log.i("Websocket", "No connection");
             }
+
+//////////////////////// zamiana bpm na average
 
             runOnUiThread(() -> heartRateTextView.setText("HR: " + bpm + " BPM"));
         } else {
