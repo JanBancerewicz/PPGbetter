@@ -16,7 +16,7 @@ public class WebClient{
     private final OkHttpClient client;
     private WebSocket webSocket;
     private final CountDownLatch latch;
-    private String ipAddress = "127.0.0.1";
+    private String ipAddress = "192.168.0.137";
 
     public WebClient(String ipAddress) {
         client = new OkHttpClient();
@@ -32,34 +32,29 @@ public class WebClient{
         webSocket = client.newWebSocket(request, new WebSocketListener() {
             @Override
             public void onOpen(@NonNull WebSocket webSocket, @NonNull Response response) {
-                Log.i("Websocket","WebSocket opened");
-//                webSocket.send("Hello, WebSocket!");
+                Log.i("Websocket", "Połączono z serwerem");
+                webSocket.send("Dane z kamery: Hello from Android!");
             }
 
             @Override
             public void onMessage(WebSocket webSocket, String text) {
-                Log.i("Websocket", "Msg: " + text);
-            }
-
-            @Override
-            public void onMessage(WebSocket webSocket, ByteString bytes) {
-                Log.i("Websocket", "Msg: " + bytes.hex());
+                Log.i("Websocket", "Otrzymano: " + text);
             }
 
             @Override
             public void onClosing(WebSocket webSocket, int code, String reason) {
                 webSocket.close(1000, null);
-                Log.i("Websocket" ,"WebSocket closing: " + reason);
+                Log.i("Websocket", "Zamykanie: " + reason);
             }
 
             @Override
             public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-                t.printStackTrace();
+                Log.e("Websocket", "Błąd połączenia: " + t.getMessage(), t);
                 latch.countDown();
             }
         });
-        client.dispatcher().executorService().shutdown();
     }
+
 
     public void send(@NonNull String str) {
         webSocket.send(str);
@@ -67,6 +62,7 @@ public class WebClient{
 
     public void close() {
         webSocket.close(1000, "End of recording");
+        client.dispatcher().executorService().shutdown();
     }
 
 }
