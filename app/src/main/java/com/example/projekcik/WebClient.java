@@ -33,7 +33,7 @@ public class WebClient{
             @Override
             public void onOpen(@NonNull WebSocket webSocket, @NonNull Response response) {
                 Log.i("Websocket", "Połączono z serwerem");
-                webSocket.send("Dane z kamery: Hello from Android!");
+//                webSocket.send("Dane z kamery: Hello from Android!");
             }
 
             @Override

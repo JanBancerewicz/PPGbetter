@@ -489,7 +489,8 @@ public class MainActivity extends Activity {
 //////////// wysylanie pure sygnalu
 
         try {
-            webSocketListener.send(Double.toString(average));
+            long time = System.currentTimeMillis();
+            webSocketListener.send(String.format("%d %f" , time, average)); // najpierw unix time-silce
         } catch (NullPointerException e) {
             Log.i("Websocket", "No connection");
         }
@@ -552,12 +553,6 @@ public class MainActivity extends Activity {
 //                    Log.i("Websocket","No connection");
 //                }
 //            }
-
-            try {
-                webSocketListener.send(Double.toString(average));
-            } catch (NullPointerException e) {
-                Log.i("Websocket", "No connection");
-            }
 
 //////////////////////// zamiana bpm na average
 
