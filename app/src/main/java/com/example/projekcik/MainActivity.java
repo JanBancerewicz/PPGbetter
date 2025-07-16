@@ -444,14 +444,23 @@ public class MainActivity extends Activity {
         lineChart.invalidate();
     }
 
+    private int clamp(int value, int min, int max)
+    {
+        return value < min ? 0 : (value > max ? max : value);
+    }
     private void analyzeImage(ImageReader reader) {
         Image image = reader.acquireLatestImage();
         if (image == null) return;
 
         int width = image.getWidth();
         int height = image.getHeight();
-        Image.Plane yPlane = image.getPlanes()[0];
+        Image.Plane[] planes = image.getPlanes();
+        Image.Plane yPlane = planes[0];
+        Image.Plane uPlane = planes[1];
+        Image.Plane vPlane = planes[2];
         ByteBuffer yBuffer = yPlane.getBuffer();
+//        ByteBuffer uBuffer = uPlane.getBuffer();
+        ByteBuffer vBuffer = vPlane.getBuffer();
         int pixelStride = yPlane.getPixelStride();
         int rowStride = yPlane.getRowStride();
 
@@ -465,14 +474,28 @@ public class MainActivity extends Activity {
         for (int row = 0; row < height; row++) {
             for (int col = 0; col < width; col++) {
                 int yIndex = row * rowStride + col * pixelStride;
-                if (yIndex >= yBuffer.limit()) continue;
-                int y = yBuffer.get(yIndex) & 0xFF;
+                if (yIndex >= yBuffer.limit() /*|| yIndex >= uBuffer.limit()*/ || yIndex >= vBuffer.limit()) continue;
+                int Y = yBuffer.get(yIndex) & 0xFF;
+//                int U = uBuffer.get(yIndex) & 0xFF;
+                int V = vBuffer.get(yIndex) & 0xFF;
+                Y -= 16;
+//                U -= 128;
+                V -= 128;
+                int R = (int)(1.164 * Y             + 1.596 * V);
+                R = clamp(R, 0, 255);
+//                int G = (int)(1.164 * Y - 0.392 * U - 0.813 * V);
+//                G = clamp(G, 0, 255);
+//                int B = (int)(1.164 * Y + 2.017 * U);
+//                B = clamp(B, 0, 255);
 
-                sum += y;
+
+//                sum += (int)(255 * (0.299 * R)) + (int)(255 * (0.587 * G)) + (int)(255 * (0.114 * B));
+                sum += R;
                 count++;
 
-                int greenColor = (0xFF << 24) | (0 << 16) | (y << 8) | 0;
-                pixels[row * width + col] = greenColor;
+//                int greenColor = (0xFF << 24) | (0 << 16) | (y << 8) | 0;
+
+//                pixels[row * width + col] = greenColor;
             }
         }
 
