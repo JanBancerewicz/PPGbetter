@@ -73,12 +73,16 @@ public class MainActivity extends Activity {
     private final BlockingQueue<Double> greenSamples = new ArrayBlockingQueue<>(256);
     private TextView heartRateTextView;
     private final int fftSize = 256;
+    private Double filteredValue = null;
+    private final double ALPHA = 0.2; // Im mniejsze, tym mocniejsze wygładzenie
 
 //    private SurfaceHolder greenHolder;
-
     ImageReader imageReader;
 
     public Button breathButton;
+
+    private long lastWebSocketSendTime = 0;
+    private static final long SEND_INTERVAL_MS = 0; // wysyłka co 0 ms
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -97,8 +101,6 @@ public class MainActivity extends Activity {
 //        SurfaceView greenSurfaceView = findViewById(R.id.greenSurfaceView);
 //        greenHolder = greenSurfaceView.getHolder();
 
-        timerTextView = findViewById(R.id.timerTextView);
-        breathButton = findViewById(R.id.buttonBreath);
         heartRateTextView = findViewById(R.id.heartRateTextView);
         ipEditText = findViewById(R.id.ipEditText);
 
@@ -211,7 +213,7 @@ public class MainActivity extends Activity {
                 Log.e("Start recording error: ", e.toString());
             }
             try {
-                String ipAdress = ipEditText.getText().toString();
+                String ipAdress = ipEditText.getText().toString().trim();
                 webSocketListener = new WebClient(ipAdress);
                 webSocketListener.start();
             } catch (Exception e) {
@@ -444,19 +446,25 @@ public class MainActivity extends Activity {
         lineChart.invalidate();
     }
 
+    private int clamp(int value, int min, int max)
+    {
+        return value < min ? 0 : (value > max ? max : value);
+    }
     private void analyzeImage(ImageReader reader) {
         Image image = reader.acquireLatestImage();
         if (image == null) return;
 
         int width = image.getWidth();
         int height = image.getHeight();
-        Image.Plane yPlane = image.getPlanes()[0];
+        Image.Plane[] planes = image.getPlanes();
+        Image.Plane yPlane = planes[0];
+        Image.Plane uPlane = planes[1];
+        Image.Plane vPlane = planes[2];
         ByteBuffer yBuffer = yPlane.getBuffer();
+//        ByteBuffer uBuffer = uPlane.getBuffer();
+        ByteBuffer vBuffer = vPlane.getBuffer();
         int pixelStride = yPlane.getPixelStride();
         int rowStride = yPlane.getRowStride();
-
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        int[] pixels = new int[width * height];
 
         int sum = 0;
         int count = 0;
@@ -465,26 +473,38 @@ public class MainActivity extends Activity {
         for (int row = 0; row < height; row++) {
             for (int col = 0; col < width; col++) {
                 int yIndex = row * rowStride + col * pixelStride;
-                if (yIndex >= yBuffer.limit()) continue;
-                int y = yBuffer.get(yIndex) & 0xFF;
-
-                sum += y;
+                if (yIndex >= yBuffer.limit() /*|| yIndex >= uBuffer.limit()*/ || yIndex >= vBuffer.limit()) continue;
+                int Y = yBuffer.get(yIndex) & 0xFF;
+                sum += Y;
                 count++;
 
-                int greenColor = (0xFF << 24) | (0 << 16) | (y << 8) | 0;
-                pixels[row * width + col] = greenColor;
             }
         }
 
-        bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
-
-//        Canvas canvas = greenHolder.lockCanvas();
-//        if (canvas != null) {
-//            canvas.drawBitmap(bitmap, null, greenHolder.getSurfaceFrame(), null);
-//            greenHolder.unlockCanvasAndPost(canvas);
-//        }
-
         double average = sum / (double) count;
+
+//////////// wysylanie pure sygnalu
+
+        if (filteredValue == null) {
+            filteredValue = average;
+        } else {
+            filteredValue = ALPHA * average + (1 - ALPHA) * filteredValue;
+        }
+        long time = System.currentTimeMillis();
+
+        if (time - lastWebSocketSendTime >= SEND_INTERVAL_MS) { //tu jest ewentualne ograniczenie, ktore jest na 0 ustawione
+            lastWebSocketSendTime = time;
+            try {
+                webSocketListener.send(String.format("%d %f", time, average));
+            } catch (NullPointerException e) {
+                Log.i("Websocket", "No connection");
+            }
+        }
+
+
+
+
+//////////// wysylanie pure sygnalu
 
         addDataPoint(average);
 
@@ -530,16 +550,20 @@ public class MainActivity extends Activity {
             appendLogToFile(bpmLog, 2); // logtype = 2 dla pulsu
 
 
-            long webElapsed = currentTime - webSocketSendCounter; // time since last send
-            if (webElapsed >= 1000) {
-                webSocketSendCounter -= 1000;
-                float bpmf = (float)bpm;
-                try {
-                    webSocketListener.send(Float.toString(bpmf));
-                } catch (NullPointerException e) {
-                    Log.i("Websocket","No connection");
-                }
-            }
+//////////////////////// zamiana bpm na average
+
+//            long webElapsed = currentTime - webSocketSendCounter; // time since last send
+//            if (webElapsed >= 1000) {
+//                webSocketSendCounter -= 1000;
+//                float bpmf = (float)bpm;
+//                try {
+//                    webSocketListener.send(Float.toString(bpmf));
+//                } catch (NullPointerException e) {
+//                    Log.i("Websocket","No connection");
+//                }
+//            }
+
+//////////////////////// zamiana bpm na average
 
             runOnUiThread(() -> heartRateTextView.setText("HR: " + bpm + " BPM"));
         } else {
