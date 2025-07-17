@@ -73,12 +73,16 @@ public class MainActivity extends Activity {
     private final BlockingQueue<Double> greenSamples = new ArrayBlockingQueue<>(256);
     private TextView heartRateTextView;
     private final int fftSize = 256;
+    private Double filteredValue = null;
+    private final double ALPHA = 0.2; // Im mniejsze, tym mocniejsze wygładzenie
 
 //    private SurfaceHolder greenHolder;
-
     ImageReader imageReader;
 
     public Button breathButton;
+
+    private long lastWebSocketSendTime = 0;
+    private static final long SEND_INTERVAL_MS = 0; // wysyłka co 0 ms
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -97,8 +101,6 @@ public class MainActivity extends Activity {
 //        SurfaceView greenSurfaceView = findViewById(R.id.greenSurfaceView);
 //        greenHolder = greenSurfaceView.getHolder();
 
-        timerTextView = findViewById(R.id.timerTextView);
-        breathButton = findViewById(R.id.buttonBreath);
         heartRateTextView = findViewById(R.id.heartRateTextView);
         ipEditText = findViewById(R.id.ipEditText);
 
@@ -211,7 +213,7 @@ public class MainActivity extends Activity {
                 Log.e("Start recording error: ", e.toString());
             }
             try {
-                String ipAdress = ipEditText.getText().toString();
+                String ipAdress = ipEditText.getText().toString().trim();
                 webSocketListener = new WebClient(ipAdress);
                 webSocketListener.start();
             } catch (Exception e) {
@@ -464,9 +466,6 @@ public class MainActivity extends Activity {
         int pixelStride = yPlane.getPixelStride();
         int rowStride = yPlane.getRowStride();
 
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        int[] pixels = new int[width * height];
-
         int sum = 0;
         int count = 0;
 
@@ -476,47 +475,34 @@ public class MainActivity extends Activity {
                 int yIndex = row * rowStride + col * pixelStride;
                 if (yIndex >= yBuffer.limit() /*|| yIndex >= uBuffer.limit()*/ || yIndex >= vBuffer.limit()) continue;
                 int Y = yBuffer.get(yIndex) & 0xFF;
-//                int U = uBuffer.get(yIndex) & 0xFF;
-                int V = vBuffer.get(yIndex) & 0xFF;
-                Y -= 16;
-//                U -= 128;
-                V -= 128;
-                int R = (int)(1.164 * Y             + 1.596 * V);
-                R = clamp(R, 0, 255);
-//                int G = (int)(1.164 * Y - 0.392 * U - 0.813 * V);
-//                G = clamp(G, 0, 255);
-//                int B = (int)(1.164 * Y + 2.017 * U);
-//                B = clamp(B, 0, 255);
-
-
-//                sum += (int)(255 * (0.299 * R)) + (int)(255 * (0.587 * G)) + (int)(255 * (0.114 * B));
-                sum += R;
+                sum += Y;
                 count++;
 
-//                int greenColor = (0xFF << 24) | (0 << 16) | (y << 8) | 0;
-
-//                pixels[row * width + col] = greenColor;
             }
         }
-
-        bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
-
-//        Canvas canvas = greenHolder.lockCanvas();
-//        if (canvas != null) {
-//            canvas.drawBitmap(bitmap, null, greenHolder.getSurfaceFrame(), null);
-//            greenHolder.unlockCanvasAndPost(canvas);
-//        }
 
         double average = sum / (double) count;
 
 //////////// wysylanie pure sygnalu
 
-        try {
-            long time = System.currentTimeMillis();
-            webSocketListener.send(String.format("%d %f" , time, average)); // najpierw unix time-silce
-        } catch (NullPointerException e) {
-            Log.i("Websocket", "No connection");
+        if (filteredValue == null) {
+            filteredValue = average;
+        } else {
+            filteredValue = ALPHA * average + (1 - ALPHA) * filteredValue;
         }
+        long time = System.currentTimeMillis();
+
+        if (time - lastWebSocketSendTime >= SEND_INTERVAL_MS) { //tu jest ewentualne ograniczenie, ktore jest na 0 ustawione
+            lastWebSocketSendTime = time;
+            try {
+                webSocketListener.send(String.format("%d %f", time, average));
+            } catch (NullPointerException e) {
+                Log.i("Websocket", "No connection");
+            }
+        }
+
+
+
 
 //////////// wysylanie pure sygnalu
 
